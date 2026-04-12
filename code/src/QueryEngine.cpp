@@ -94,8 +94,9 @@ void QueryEngine::setEF(Node * node, int ef){
         setEF(node->right_child,ef);
     }
 }
-void QueryEngine::queryBinaryFile(int q_num, unsigned int k, int mode) {
+std::vector<std::vector<double>> QueryEngine::queryBinaryFile(int q_num, unsigned int k, int mode) {
     // Record start time
+    std::vector<std::vector<double>> distances = {};
     auto start = now();
 
     this->query_file = fopen(this->query_filename, "rb");
@@ -177,7 +178,7 @@ void QueryEngine::queryBinaryFile(int q_num, unsigned int k, int mode) {
         }
 
         q_loaded++;
-        searchNpLeafParallel(query_ts, k, nprobes);
+        distances.push_back(searchNpLeafParallel(query_ts, k, nprobes));
     }
 
     free(query_ts);
@@ -318,8 +319,8 @@ void searchGraphLeaf(Node * node,const void *query_data, size_t k,
 
 
 
-void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsigned int nprobes) {
-    std::vector<std::vector<double>> distances = {};
+std::vector<double> QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsigned int nprobes) {
+    std::vector<double> distances = {};
     stats.reset();
 
     Time start = now();
@@ -354,7 +355,7 @@ void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsign
             top_candidates.pop();
         }
         double time = getElapsedTime(start);
-        distances.push_back(printKNN(results, k, time, visited, 0));
+        distances=printKNN(results, k, time, visited, 0);
 
     }
     else{
@@ -526,7 +527,7 @@ void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsign
         }
 
 
-        distances.push_back(printKNN(results, k, time, visited, 1));
+        distances=printKNN(results, k, time, visited, 1);
 
 
 
