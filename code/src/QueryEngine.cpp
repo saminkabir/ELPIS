@@ -319,7 +319,7 @@ void searchGraphLeaf(Node * node,const void *query_data, size_t k,
 
 
 void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsigned int nprobes) {
-    std::vector<double> distances = {};
+    std::vector<std::vector<double>> distances = {};
     stats.reset();
 
     Time start = now();
@@ -354,7 +354,7 @@ void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsign
             top_candidates.pop();
         }
         double time = getElapsedTime(start);
-        distances= printKNN(results, k, time, visited, 0);
+        distances.push_back(printKNN(results, k, time, visited, 0));
 
     }
     else{
@@ -526,7 +526,7 @@ void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsign
         }
 
 
-        distances= printKNN(results, k, time, visited, 1);
+        distances.push_back(printKNN(results, k, time, visited, 1));
 
 
 
