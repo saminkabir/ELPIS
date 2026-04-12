@@ -73,79 +73,127 @@ mkdir(index_path , 07777);
    \main_idea_of_splitting maximize difference between QOS of parent and QOS of new children, hmmm basically we try to minimize QOS (len*(difference_between_minandmax_mean² + max_std²)) of leaves, so we select the splitting strategy giving the max diff between qos of parent and the avg qos of its two new children
 <br> <b>range=Qos</b>
  * */
-void Index::buildIndexFromBinaryData(char * dataset, file_position_type dataset_size) {
+void Index::buildIndexFromBinaryData(char *dataset, file_position_type dataset_size) {
     // Record start time
     auto start = std::chrono::high_resolution_clock::now();
 
-    auto * ts = static_cast<ts_type *>(malloc(sizeof(ts_type) * this->index_setting->timeseries_size));
-    if(ts == nullptr){
-        cerr << "Could not Allocate ts in index.cpp"<<endl;
+    auto *ts = static_cast<ts_type *>(malloc(sizeof(ts_type) * this->index_setting->timeseries_size));
+    if (ts == nullptr) {
+        cerr << "Could not allocate ts in index.cpp" << endl;
         exit(-1);
     }
 
-    FILE *ifile;
-    ifile = fopen(dataset   , "rb");
+    FILE *ifile = fopen(dataset, "rb");
     if (ifile == nullptr) {
-        fprintf(stderr, "Error in index.c: File %s not found!\n", dataset);
+        fprintf(stderr, "Error in index.cpp: File %s not found!\n", dataset);
+        free(ts);
         exit(-1);
     }
 
     fseek(ifile, 0L, SEEK_END);
-    auto sz = (file_position_type) ftell(ifile);
-    file_position_type total_records = sz /this->index_setting->timeseries_size * sizeof(ts_type);
+    auto sz = (file_position_type)ftell(ifile);
     fseek(ifile, 0L, SEEK_SET);
+
+    // Each .fvecs record is:
+    // [int dimension][float x1][float x2]...[float xd]
+    file_position_type record_size =
+        sizeof(int) + this->index_setting->timeseries_size * sizeof(ts_type);
+
+    if (record_size == 0) {
+        fprintf(stderr, "Error in index.cpp: Invalid record size.\n");
+        fclose(ifile);
+        free(ts);
+        exit(-1);
+    }
+
+    file_position_type total_records = sz / record_size;
+
     if (total_records < dataset_size) {
-        fprintf(stderr, "File %s has only %llu records!\n", dataset, total_records);
+        fprintf(stderr, "File %s has only %llu records!\n",
+                dataset, (unsigned long long)total_records);
+        fclose(ifile);
+        free(ts);
         exit(-1);
     }
 
     file_position_type ts_loaded = 0;
 
     while (ts_loaded < dataset_size) {
+        int dim = 0;
 
-        //printf("\r\x1b[32mLoading: \x1b[36m%d\x1b[0m\n",(ts_loaded + 1));
-
-        fread(ts, sizeof(ts_type), this->index_setting->timeseries_size, ifile);
-
-        if (!this->insertTS(ts)) {
-            cerr << "Error in index.c:  Could not add the time series to the index."<<endl;
+        if (fread(&dim, sizeof(int), 1, ifile) != 1) {
+            fprintf(stderr, "Error in index.cpp: Failed to read dimension header from %s\n", dataset);
+            fclose(ifile);
+            free(ts);
             exit(-1);
         }
+
+        if (dim != (int)this->index_setting->timeseries_size) {
+            fprintf(stderr,
+                    "Error in index.cpp: Dimension mismatch in %s at record %llu. Expected %d, got %d\n",
+                    dataset,
+                    (unsigned long long)ts_loaded,
+                    (int)this->index_setting->timeseries_size,
+                    dim);
+            fclose(ifile);
+            free(ts);
+            exit(-1);
+        }
+
+        if (fread(ts, sizeof(ts_type), dim, ifile) != (size_t)dim) {
+            fprintf(stderr,
+                    "Error in index.cpp: Failed to read vector data from %s at record %llu\n",
+                    dataset,
+                    (unsigned long long)ts_loaded);
+            fclose(ifile);
+            free(ts);
+            exit(-1);
+        }
+
+        if (!this->insertTS(ts)) {
+            cerr << "Error in index.cpp: Could not add the time series to the index." << endl;
+            fclose(ifile);
+            free(ts);
+            exit(-1);
+        }
+
         ts_loaded++;
     }
 
     hercules_file_map *lastP = this->buffer_manager->file_map_tail;
-    Node ** nodes = static_cast<Node **>(malloc_index(Node::num_leaf_node * sizeof(Node *)));
-    int i =0;
-    while(lastP != nullptr){
-            nodes[i++] = lastP->file_buffer->node;
-            lastP = lastP->prev;
-        }
+    Node **nodes = static_cast<Node **>(malloc_index(Node::num_leaf_node * sizeof(Node *)));
+    int i = 0;
 
-#pragma omp parallel default(none) shared(i,nodes)
-    {
-#pragma omp for //num_threads(n1)
-        for(int j =0; j<i;j++)
-            nodes[j]->leafToGraph(this);
+    while (lastP != nullptr) {
+        nodes[i++] = lastP->file_buffer->node;
+        lastP = lastP->prev;
     }
 
-    for(int j =0; j<i;j++)
-        nodes[j]->deleteFileBuffer(this);
-    free(this->buffer_manager->mem_array);
+#pragma omp parallel default(none) shared(i, nodes)
+    {
+#pragma omp for
+        for (int j = 0; j < i; j++) {
+            nodes[j]->leafToGraph(this);
+        }
+    }
 
+    for (int j = 0; j < i; j++) {
+        nodes[j]->deleteFileBuffer(this);
+    }
+
+    free(this->buffer_manager->mem_array);
+    free(nodes);
     free(ts);
+
     if (fclose(ifile)) {
-        fprintf(stderr, "Error in index.cpp: Could not close the filename %s", dataset);
+        fprintf(stderr, "Error in index.cpp: Could not close the file %s\n", dataset);
         exit(-1);
     }
 
-
-
-// Record end time
+    // Record end time
     auto finish = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = finish - start;
     this->time_stats->index_building_time = elapsed.count();
-
 }
 
 /**

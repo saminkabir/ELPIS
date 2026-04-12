@@ -99,45 +99,91 @@ void QueryEngine::queryBinaryFile(int q_num, unsigned int k, int mode) {
     auto start = now();
 
     this->query_file = fopen(this->query_filename, "rb");
-    if (this->query_file  == NULL) {
+    if (this->query_file == NULL) {
         fprintf(stderr, "Queries file %s not found!\n", this->query_filename);
         exit(-1);
     }
 
     fseek(this->query_file, 0L, SEEK_END);
-    file_position_type sz = (file_position_type) ftell(this->query_file);
+    file_position_type sz = (file_position_type)ftell(this->query_file);
     fseek(this->query_file, 0L, SEEK_SET);
-    this->total_records = sz / this->index->index_setting->timeseries_size * sizeof(ts_type);
 
+    // Each .fvecs record is:
+    // [int dimension][float x1][float x2]...[float xd]
+    file_position_type record_size =
+        sizeof(int) + this->index->index_setting->timeseries_size * sizeof(ts_type);
 
-    fseek(this->query_file, 0L, SEEK_SET);
-    unsigned int offset = 0;
+    if (record_size == 0) {
+        fprintf(stderr, "Error: Invalid record size for query file %s\n", this->query_filename);
+        fclose(this->query_file);
+        exit(-1);
+    }
 
-    if (this->total_records < q_num) {
-        fprintf(stderr, "File %s has only %llu records!\n", query_filename, total_records);
+    this->total_records = sz / record_size;
+
+    if (this->total_records < (file_position_type)q_num) {
+        fprintf(stderr, "File %s has only %llu records!\n",
+                this->query_filename,
+                (unsigned long long)this->total_records);
+        fclose(this->query_file);
         exit(-1);
     }
 
     unsigned int q_loaded = 0;
     unsigned int ts_length = this->index->index_setting->timeseries_size;
 
-    ts_type *query_ts = static_cast<ts_type *>(malloc_search( sizeof(ts_type) * ts_length));
-    cout << query_filename<<endl;
+    ts_type *query_ts = static_cast<ts_type *>(malloc_search(sizeof(ts_type) * ts_length));
+    if (query_ts == nullptr) {
+        fprintf(stderr, "Error: Could not allocate memory for query_ts\n");
+        fclose(this->query_file);
+        exit(-1);
+    }
 
-     while(q_loaded < q_num){
+    cout << this->query_filename << endl;
+
+    while (q_loaded < (unsigned int)q_num) {
+        int dim = 0;
+
+        if (fread(&dim, sizeof(int), 1, this->query_file) != 1) {
+            fprintf(stderr,
+                    "Error: Failed to read dimension header from query file %s at query %u\n",
+                    this->query_filename,
+                    q_loaded);
+            free(query_ts);
+            fclose(this->query_file);
+            exit(-1);
+        }
+
+        if (dim != (int)ts_length) {
+            fprintf(stderr,
+                    "Error: Dimension mismatch in query file %s at query %u. Expected %u, got %d\n",
+                    this->query_filename,
+                    q_loaded,
+                    ts_length,
+                    dim);
+            free(query_ts);
+            fclose(this->query_file);
+            exit(-1);
+        }
+
+        if (fread(query_ts, sizeof(ts_type), ts_length, this->query_file) != ts_length) {
+            fprintf(stderr,
+                    "Error: Failed to read query vector data from %s at query %u\n",
+                    this->query_filename,
+                    q_loaded);
+            free(query_ts);
+            fclose(this->query_file);
+            exit(-1);
+        }
+
         q_loaded++;
-        fread(query_ts, sizeof(ts_type), ts_length, this->query_file);
-        searchNpLeafParallel(query_ts,k,nprobes);
+        searchNpLeafParallel(query_ts, k, nprobes);
     }
 
     free(query_ts);
-
     this->closeFile();
 
-
-
     index->time_stats->querying_time = getElapsedTime(start);
-
 }
 
 
@@ -273,7 +319,7 @@ void searchGraphLeaf(Node * node,const void *query_data, size_t k,
 
 
 void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsigned int nprobes) {
-
+    std::vector<double> distances = {};
     stats.reset();
 
     Time start = now();
@@ -308,7 +354,7 @@ void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsign
             top_candidates.pop();
         }
         double time = getElapsedTime(start);
-        printKNN(results, k, time, visited, 0);
+        distances= printKNN(results, k, time, visited, 0);
 
     }
     else{
@@ -480,7 +526,7 @@ void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsign
         }
 
 
-        printKNN(results, k, time, visited, 1);
+        distances= printKNN(results, k, time, visited, 1);
 
 
 
@@ -493,7 +539,8 @@ void QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsign
 }
 
 
-inline void QueryEngine::printKNN(float * results, int k, double time,queue<unsigned int> & visited, bool para){
+inline std::vector<double> QueryEngine::printKNN(float * results, int k, double time,queue<unsigned int> & visited, bool para){
+    std::vector<double> distances = {};
     cout << "----------"<<k<<"-NN RESULTS----------- | "<<para;
     if(para)cout<<" - num candidates "<<stats.num_candidates
                 << " - num leaf checked "<<stats.num_leaf_checked
@@ -505,7 +552,8 @@ inline void QueryEngine::printKNN(float * results, int k, double time,queue<unsi
     for(int i = 0 ; i < k ; i++){
         printf( " K N°%i  => Distance : %f | Node ID : %lu | Time  : %f |Total DC : %lu | HDC : %lu | BDC : %lu \n",i+1,sqrt(results[i]),
                 0,time,stats.distance_computations_hrl+stats.distance_computations_bsl,stats.distance_computations_hrl,stats.distance_computations_bsl);
-        stats.reset();
+        distances.push_back(sqrt(results[i]));
+                stats.reset();
         /*    cout << " K N°"<<i+1<<" => Distance : "<<sqrt(results[i])
                  << " | Node ID : "<< 0
                  << " | Time : "<<time

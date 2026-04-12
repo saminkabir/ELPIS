@@ -55,7 +55,7 @@ public :
 
     void queryBinaryFile(int q_num, unsigned int k, int i);
 
-    void printKNN(float *results, int k, double time, queue<unsigned int> &visited, bool para=0);
+    std::vector<double> printKNN(float *results, int k, double time, queue<unsigned int> &visited, bool para=0);
 
     void searchNpLeafParallel(ts_type *query_ts, unsigned int k, unsigned int nprobes);
 
