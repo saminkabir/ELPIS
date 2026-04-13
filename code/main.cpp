@@ -7,9 +7,63 @@
 
 
 using namespace std;
+
+void readFVecsFromExternal(std::string filepath, std::vector<std::vector<float>> &dataset) {
+  FILE *infile = fopen(filepath.c_str(), "rb");
+  if (infile == NULL) {
+    std::cout << "File not found" << std::endl;
+    return;
+  }
+  
+  int dimen;
+  while (true) {
+    if (fread(&dimen, sizeof(float), 1, infile) == 0) {
+      break;
+    }
+    std::vector<float> v(dimen);
+    if(fread(v.data(), sizeof(float), dimen, infile) == 0) {
+      std::cout << "Error when reading" << std::endl;
+    };
+    dataset.push_back(v);
+  }
+  if (fclose(infile)) {
+    std::cout << "Could not close data file" << std::endl;
+  }
+}
+
+void readIVecsFromExternal(std::string filepath, std::vector<std::vector<int>> &dataset, int N) {
+  FILE *infile = fopen(filepath.c_str(), "rb");
+  if (infile == NULL) {
+    std::cout << "File not found" << std::endl;
+    return;
+  }
+  
+  int dimen;
+  while (true) {
+    if (fread(&dimen, sizeof(int), 1, infile) == 0) {
+      break;
+    }
+    if (dimen != N) {
+      std::cout << "N and actual dimension mismatch" << std::endl;
+      return;
+    }
+    std::vector<int> v(dimen);
+    if (fread(v.data(), sizeof(int), dimen, infile) == 0) {
+      std::cout << "error when reading" << std::endl;
+    };
+    
+    dataset.push_back(v);
+  }
+
+  if (fclose(infile)) {
+    std::cout << "Could not close data file" << std::endl;
+  }
+}
+
 int main(int argc, char **argv) {
     static char *dataset = "nodataset";
     static char *queries = "noquery";
+    static char *groundtruth = "nogroundtruth";
     static char * index_path = "index/";
     static unsigned int dataset_size = 1000;
     static unsigned int queries_size = 5;
@@ -41,6 +95,7 @@ int main(int argc, char **argv) {
                 {"Lb",          required_argument, 0, 'efc'},
                 {"L",          required_argument, 0, 'ef'},
                 {"dataset",          required_argument, 0, 'd'},
+                {"ground_truth",          required_argument, 0, 'gt'},
                 {"dataset-hists",    required_argument, 0, 'n'},
                 {"delta",            required_argument, 0, 'e'},
                 {"queries-size",     required_argument, 0, 'f'},
@@ -106,6 +161,10 @@ int main(int argc, char **argv) {
 
             case 'q':
                 queries = optarg;
+                break;
+
+            case 'gt':
+                groundtruth = optarg;
                 break;
 
 
@@ -227,9 +286,10 @@ int main(int argc, char **argv) {
 
         QueryEngine * queryengine = new QueryEngine(queries, index, ef, nprobes,
                                      parallel, nworker, flatt,k);//k
-        queryengine->queryBinaryFile(queries_size, k, mode);
+        std::vector<std::vector<double>> distances=queryengine->queryBinaryFile(queries_size, k, mode);
         cout << "[Querying Time] "<< index->time_stats->querying_time <<"(sec)"<<endl;
-
+        std::vector<std::vector<int>> topnn;
+        readIVecsFromExternal(std::string(groundtruth), topnn, k);
         delete index;
         delete queryengine;
 
