@@ -185,6 +185,7 @@ std::vector<std::vector<double>> QueryEngine::queryBinaryFile(int q_num, unsigne
     this->closeFile();
 
     index->time_stats->querying_time = getElapsedTime(start);
+    return distances;
 }
 
 
@@ -536,6 +537,7 @@ std::vector<double> QueryEngine::searchNpLeafParallel(ts_type *query_ts, unsigne
         while ((n = static_cast<query_result *>(pqueue_pop(candidate_leaves))))free(n);
 
     }
+    return distances;
 
 }
 
@@ -573,6 +575,7 @@ inline std::vector<double> QueryEngine::printKNN(float * results, int k, double 
                  << " | Num DC(lb): " << stats.distance_computations_lb*/
         time = 0;
     }
+    return distances;
 }
 
 inline void QueryEngine::copypq(query_worker_data *pData, priority_queue<pair<float, unsigned int>> queue) {
